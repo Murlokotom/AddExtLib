@@ -11,40 +11,73 @@ set(CMAKE_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}")
 set(EXTERNAL_PROJECT_PREFIX "${CMAKE_SOURCE_DIR}/external")
 set(EXTERNAL_PROJECT_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/install")
 
-# Function to transform a semicolon-separated string of flags into a CMake-style -D flag string
-# Usage: transform_flags(input_string output_variable)
-# input_string: A string containing flags separated by semicolons (e.g., "BUILD_TEST OFF;SHARED_LIBS ON;BUILD_DEMO;EXEC=main")
-# output_variable: The variable to store the transformed result (e.g., "-DBUILD_TEST=OFF;-DSHARED_LIBS=ON;-DBUILD_DEMO=ON;-DEXEC=main")
-function(ael_transform_flags input_string output_variable)
-    # Split the input string into a list of flags using ";" as the delimiter
-    string(REPLACE ";" ";" flags_list "${input_string}")
-    # Initialize an empty string to store the result
-    set(result "")
-    # Iterate over each flag in the list
-    foreach(flag ${flags_list})
-        # Use regex to extract the key and value from the flag
-        # The regex matches:
-        # - ([^=]+): One or more characters that are not "=" (the key)
-        # - =?(.*): An optional "=" followed by any characters (the value)
-        string(REGEX MATCH "([^=]+)=?(.*)" matched ${flag})
-        set(key ${CMAKE_MATCH_1})  # The key is the first capturing group
-        set(value ${CMAKE_MATCH_2})  # The value is the second capturing group
-        # If the value is empty, it means the flag is a boolean flag (e.g., BUILD_DEMO)
-        # Assign "ON" as the default value for such flags
-        if("${value}" STREQUAL "")
-            set(value "ON")
-        endif()
-        # Construct the -D flag string and append it to the result
-        set(result "${result}-D${key}=${value};")
+function(ael_fix_tag git_url git_tag fixed_tag)
+    # Corrects or finds the latest Git tag for a repository.
+    # Parameters:
+    #   git_url  - Repository URL (e.g., "https://github.com/DCMTK/dcmtk.git").
+    #   git_tag  - Tag to search for. If empty, retrieves the latest finded tag.
+    #   fixed_tag - Output variable for the corrected/latest finded tag.
+    if("${git_tag}" STREQUAL "")
+        set(GIT_COMMAND ${GIT_EXECUTABLE} ls-remote --tags --refs ${git_url} "*")
+    else()
+        set(GIT_COMMAND ${GIT_EXECUTABLE} ls-remote --tags --refs ${git_url} "*${git_tag}*")
+    endif()
+
+    execute_process(
+        COMMAND ${GIT_COMMAND}
+        OUTPUT_VARIABLE REMOTE_TAGS
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    set(TAG_LIST "")
+    string(REPLACE "\n" ";" TAG_LINES "${REMOTE_TAGS}")
+    
+    foreach(line ${TAG_LINES})
+        string(REGEX REPLACE "^.*refs/tags/" "" TAG_NAME "${line}")
+        list(APPEND TAG_LIST "${TAG_NAME}")
     endforeach()
-    # Remove the trailing semicolon from the result
-    string(REGEX REPLACE ";$" "" result "${result}")
-    # Set the result in the parent scope so it can be accessed outside the function
+
+    if(TAG_LIST)
+        list(SORT TAG_LIST ORDER DESCENDING)
+        list(GET TAG_LIST 0 LATEST_TAG)
+    else()
+        set(LATEST_TAG "")
+    endif()
+
+    set(${fixed_tag} "${LATEST_TAG}" PARENT_SCOPE)
+endfunction()
+
+function(ael_transform_flags input_list output_variable)
+# Function to transform a list of flags into a CMake-style -D flag list
+# Usage: transform_flags(input_list output_variable)
+# input_list: A list of flags (e.g., "BUILD_TEST OFF" "SHARED_LIBS ON" "BUILD_DEMO" "EXEC=main")
+# output_variable: The variable to store the transformed result as a list (e.g., "-DBUILD_TEST=OFF" "-DSHARED_LIBS=ON" "-DBUILD_DEMO=ON" "-DEXEC=main")
+    set(result "")
+    foreach(flag ${input_list})
+        string(FIND "${flag}" " " space_pos)
+        string(FIND "${flag}" "=" equal_pos)
+        if(NOT equal_pos EQUAL -1)
+            string(SUBSTRING "${flag}" 0 ${equal_pos} key)
+            math(EXPR value_pos "${equal_pos} + 1")
+            string(SUBSTRING "${flag}" ${value_pos} -1 value)
+        else()
+            if(NOT space_pos EQUAL -1)
+                string(SUBSTRING "${flag}" 0 ${space_pos} key)
+                math(EXPR value_pos "${space_pos} + 1")
+                string(SUBSTRING "${flag}" ${value_pos} -1 value)
+            else()
+                set(key "${flag}")
+                set(value "ON")
+            endif()
+        endif()
+        list(APPEND result "-D${key}=${value}")
+    endforeach()
     set(${output_variable} "${result}" PARENT_SCOPE)
 endfunction()
 
-# Parse URL
 function(ael_parse_url arg lib_name git_url git_tag)
+# Parse URL
     set(url "")
     set(tag "")
     set(name "")
@@ -104,43 +137,49 @@ function(ael_parse_url arg lib_name git_url git_tag)
     set(${git_tag} "${tag}" PARENT_SCOPE)
 endfunction()
 
-function(AddExtLib)
-    set(ALL_EXTLIB_ADDED OFF PARENT_SCOPE)
-    if (${ARGC} EQUAL 0)
-        message(FATAL_ERROR "AddExtLib: No args found ")
-    endif()
+macro(AddExtLib ARGV0)
+    set(ALL_EXTLIB_ADDED OFF)
 
     set(options ONLY_SOURCE SILENT)
     set(oneValueArgs NAME REPO TAG)       
-    set(multiValueArgs OPTIONS)
+    set(multiValueArgs OPTIONS DEPENDS)
 
     list(FIND options "${ARGV0}" options_index)
     list(FIND oneValueArgs "${ARGV0}" oneValueArg_index)
     list(FIND multiValueArgs "${ARGV0}" multiValueArg_index)
     if ((options_index EQUAL -1) AND (oneValueArg_index EQUAL -1) AND (multiValueArg_index EQUAL -1))
-        # First argument is URL
-        cmake_parse_arguments(PARSE_ARGV 1 AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}")
+        cmake_parse_arguments(AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
         if(NOT AEL_ARGS_REPO)
             set(AEL_ARGS_REPO "${ARGV0}")
         endif()
     else()
-        cmake_parse_arguments(PARSE_ARGV 0 AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}")
-    endif()
-    ael_parse_url("${AEL_ARGS_REPO}" LIB_NAME AEL_ARGS_REPO LIB_TAG)
+        cmake_parse_arguments(AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGV0} ${ARGN})
+    endif()    
 
+    unset(options)
+    unset(oneValueArgs)
+    unset(multiValueArgs)
+    unset(options_index)
+    unset(oneValueArg_index)
+    unset(multiValueArg_index)
+
+    ael_parse_url("${AEL_ARGS_REPO}" LIB_NAME AEL_ARGS_REPO LIB_TAG)
     if(NOT AEL_ARGS_NAME)
         set(AEL_ARGS_NAME "${LIB_NAME}")
     endif()
     if(NOT AEL_ARGS_TAG)
         set(AEL_ARGS_TAG "${LIB_TAG}")
     endif()
+
     ael_transform_flags("${AEL_ARGS_OPTIONS}" AEL_ARGS_OPTIONS)
+    ael_fix_tag("${AEL_ARGS_REPO}" "${AEL_ARGS_TAG}" AEL_ARGS_TAG)
 
     if(NOT SILENT)
         message(STATUS "---------------------------------------------------------------")
         message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
         message(STATUS "ONLY_SOURCE: ${AEL_ARGS_ONLY_SOURCE}")
-        message(STATUS "INSTALL_OPTIONS: ${AEL_ARGS_OPTIONS}")
+        message(STATUS "OPTIONS: ${AEL_ARGS_OPTIONS}")
+        message(STATUS "DEPENDS: ${AEL_ARGS_DEPENDS}")
         message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")
     endif()
 
@@ -186,40 +225,59 @@ function(AddExtLib)
         "${INSTALL_DIR}/lib"
         )
 
-        ExternalProject_Add(
-            ${AEL_ARGS_NAME}
-            GIT_REPOSITORY  ${AEL_ARGS_REPO}
-            GIT_TAG         ${AEL_ARGS_TAG}
-            PREFIX          "${PREFIX_DIR}"
-            TMP_DIR         "${PREFIX_DIR}/tmp"
-            STAMP_DIR       "${PREFIX_DIR}/stamp"
-            LOG_DIR         "${PREFIX_DIR}/log"
-            BINARY_DIR      "${PREFIX_DIR}/bin"
-            SOURCE_DIR      "${SOURCE_DIR}"
-            CMAKE_ARGS
-                -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}
-                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                ${AEL_ARGS_OPTIONS}
-            BUILD_ALWAYS OFF
-        )
+        if(AEL_ARGS_DEPENDS)
+            ExternalProject_Add(
+                ${AEL_ARGS_NAME}
+                GIT_REPOSITORY  ${AEL_ARGS_REPO}
+                GIT_TAG         ${AEL_ARGS_TAG}
+                DEPENDS         ${AEL_ARGS_DEPENDS}
+                PREFIX          "${PREFIX_DIR}"
+                TMP_DIR         "${PREFIX_DIR}/tmp"
+                STAMP_DIR       "${PREFIX_DIR}/stamp"
+                LOG_DIR         "${PREFIX_DIR}/log"
+                BINARY_DIR      "${PREFIX_DIR}/bin"
+                SOURCE_DIR      "${SOURCE_DIR}"
+                CMAKE_ARGS
+                    -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}
+                    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                    ${AEL_ARGS_OPTIONS}
+                BUILD_ALWAYS OFF
+            )
+        elseif()
+            ExternalProject_Add(
+                ${AEL_ARGS_NAME}
+                GIT_REPOSITORY  ${AEL_ARGS_REPO}
+                GIT_TAG         ${AEL_ARGS_TAG}
+                PREFIX          "${PREFIX_DIR}"
+                TMP_DIR         "${PREFIX_DIR}/tmp"
+                STAMP_DIR       "${PREFIX_DIR}/stamp"
+                LOG_DIR         "${PREFIX_DIR}/log"
+                BINARY_DIR      "${PREFIX_DIR}/bin"
+                SOURCE_DIR      "${SOURCE_DIR}"
+                CMAKE_ARGS
+                    -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}
+                    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                    ${AEL_ARGS_OPTIONS}
+                BUILD_ALWAYS OFF
+            )
+        endif()
         message(STATUS "${AEL_ARGS_NAME} will be built. Re-run configuration after build completes.")
     else()
         message(STATUS "${AEL_ARGS_NAME} ${AEL_ARGS_TAG} found in ${INSTALL_DIR}")
 
         list(APPEND CMAKE_PREFIX_PATH "${INSTALL_DIR}")
-        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" PARENT_SCOPE)
 
-        set(${AEL_ARGS_NAME}_INSTALL_DIR ${INSTALL_DIR} PARENT_SCOPE) 
-        set(${AEL_ARGS_NAME}_ADDED TRUE PARENT_SCOPE)
-        set(${AEL_ARGS_NAME}_INCLUDE_DIRS "${${AEL_ARGS_NAME}_INCLUDE_DIRS}" PARENT_SCOPE)
-        set(${AEL_ARGS_NAME}_LIBRARIES "${${AEL_ARGS_NAME}_LIBRARIES}" PARENT_SCOPE)
-        set(ALL_EXTLIB_ADDED ON PARENT_SCOPE)
+        set(${AEL_ARGS_NAME}_INSTALL_DIR ${INSTALL_DIR}) 
+        set(${AEL_ARGS_NAME}_ADDED TRUE)
+        set(${AEL_ARGS_NAME}_INCLUDE_DIRS "${${AEL_ARGS_NAME}_INCLUDE_DIRS}")
+        set(${AEL_ARGS_NAME}_LIBRARIES "${${AEL_ARGS_NAME}_LIBRARIES}")
+        set(ALL_EXTLIB_ADDED ON)
         
         if(NOT SILENT)
-        message(STATUS "${AEL_ARGS_NAME}_INSTALL_DIR: ${${AEL_ARGS_NAME}_INSTALL_DIR}")
-        message(STATUS "${AEL_ARGS_NAME}_ADDED: ${${AEL_ARGS_NAME}_ADDED}")
-        message(STATUS "${AEL_ARGS_NAME}_INCLUDE_DIRS: ${${AEL_ARGS_NAME}_INCLUDE_DIRS}")
-        message(STATUS "${AEL_ARGS_NAME}_LIBRARIES: ${${AEL_ARGS_NAME}_LIBRARIES}")
+            message(STATUS "${AEL_ARGS_NAME}_INSTALL_DIR: ${${AEL_ARGS_NAME}_INSTALL_DIR}")
+            message(STATUS "${AEL_ARGS_NAME}_ADDED: ${${AEL_ARGS_NAME}_ADDED}")
+            #message(STATUS "${AEL_ARGS_NAME}_INCLUDE_DIRS: ${${AEL_ARGS_NAME}_INCLUDE_DIRS}")
+            #message(STATUS "${AEL_ARGS_NAME}_LIBRARIES: ${${AEL_ARGS_NAME}_LIBRARIES}")
         endif()
 
         if(WIN32)
@@ -229,17 +287,16 @@ function(AddExtLib)
         endif()
         if(DLL_FILES)
             if(NOT SILENT)
-            message(STATUS "Copying runtime libraries to ${PROJECT_BINARY_DIR}: ${DLL_FILES}")
+                message(STATUS "Copying runtime libraries to ${PROJECT_BINARY_DIR}: ${DLL_FILES}")
             endif()
             file(COPY ${DLL_FILES} DESTINATION "${PROJECT_BINARY_DIR}")
         else()
             if(NOT SILENT)
-            message(STATUS "No runtime libraries found in ${INSTALL_DIR}/bin")
+                message(STATUS "No runtime libraries found in ${INSTALL_DIR}/bin")
             endif()
         endif()
     endif()
-   
-endfunction()
+endmacro()
 #[[
 set(PROJECT_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/exec/${CMAKE_BUILD_TYPE}")
 set(CMAKE_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}")

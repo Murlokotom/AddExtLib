@@ -10,11 +10,10 @@ set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -static-li
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -static-libgcc -static-libstdc++ -pthread")
 
 include(cmake/AddExtLibs.cmake)
-
-AddExtLib("gh:fmtlib/fmt@11.1.3" OPTIONS "BUILD_SHARED_LIBS" "FMT_TEST OFF")
-AddExtLib("gh:Neargye/magic_enum@v0.9.7" OPTIONS "MAGIC_ENUM_OPT_BUILD_EXAMPLES OFF" "MAGIC_ENUM_OPT_BUILD_TESTS OFF" "MAGIC_ENUM_OPT_INSTALL ON")
-AddExtLib("gh:rhuijben/sqlite-amalgamation@3.49.0" NAME sqlite3 OPTIONS "BUILD_SHELL OFF" "ENABLE_STATIC_SHELL OFF" "ENABLE_ICU ON")
-AddExtLib("gh:USCiLab/cereal@v1.3.2" OPTIONS "BUILD_DOC OFF" "BUILD_SANDBOX OFF" "BUILD_TESTS OFF" "THREAD_SAFE ON" "CEREAL_INSTALL ON" "SKIP_PERFORMANCE_COMPARISON ON")
+AddExtLib(REPO "gh:fmtlib/fmt@11.1.2" OPTIONS "BUILD_SHARED_LIBS" "FMT_TEST=OFF")
+#AddExtLib("gh:Neargye/magic_enum@v0.9.7" OPTIONS "MAGIC_ENUM_OPT_BUILD_EXAMPLES OFF" "MAGIC_ENUM_OPT_BUILD_TESTS OFF" "MAGIC_ENUM_OPT_INSTALL ON")
+#AddExtLib("gh:rhuijben/sqlite-amalgamation@3.49.0" NAME sqlite3 OPTIONS "BUILD_SHELL OFF" "ENABLE_STATIC_SHELL OFF" "ENABLE_ICU ON")
+#AddExtLib("gh:USCiLab/cereal@v1.3.2" OPTIONS "BUILD_DOC OFF" "BUILD_SANDBOX OFF" "BUILD_TESTS OFF" "THREAD_SAFE ON" "CEREAL_INSTALL ON" "SKIP_PERFORMANCE_COMPARISON ON")
 
 
 if(ALL_EXTLIB_ADDED)
@@ -25,7 +24,7 @@ if(ALL_EXTLIB_ADDED)
     target_include_directories(addextlibtest PRIVATE
         "${PROJECT_SOURCE_DIR}/src/"
     )
-    target_link_libraries(uniview PRIVATE fmt::fmt magic_enum::magic_enum)
+    target_link_libraries(uniview fmt::fmt)
     #target_compile_definitions(uniview PRIVATE IMGUI_USER_CONFIG="uniview_imconfig.h")
     set_target_properties(uniview PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 endif()
