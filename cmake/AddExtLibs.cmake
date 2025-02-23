@@ -1,15 +1,32 @@
-include(FetchContent)
+find_package(Git REQUIRED)
 include(ExternalProject)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
 endif()
 
+if(NOT AEL_EXEC_DIR)
+    set(AEL_EXEC_DIR "exec")
+endif()
+
+if(NOT AEL_BUILD_DIR)
+    set(AEL_BUILD_DIR "build")
+endif()
+
+if(NOT AEL_EXTERNAL_DIR)
+    set(AEL_EXTERNAL_DIR "external")
+endif()
+
+if(NOT AEL_INSTALL_DIR)
+    set(AEL_INSTALL_DIR "install")
+endif()
+
 set(ALL_EXTLIB_ADDED ON)
-set(PROJECT_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/exec/${CMAKE_BUILD_TYPE}")
-set(CMAKE_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}")
-set(EXTERNAL_PROJECT_PREFIX "${CMAKE_SOURCE_DIR}/external")
-set(EXTERNAL_PROJECT_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/install")
+
+set(PROJECT_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${AEL_EXEC_DIR}/${CMAKE_BUILD_TYPE}")
+set(CMAKE_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${AEL_BUILD_DIR}/${CMAKE_BUILD_TYPE}")
+set(EXTERNAL_PROJECT_PREFIX "${CMAKE_SOURCE_DIR}/${AEL_EXTERNAL_DIR}")
+set(EXTERNAL_PROJECT_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${AEL_INSTALL_DIR}")
 
 function(ael_fix_tag git_url git_tag fixed_tag)
     # Corrects or finds the latest Git tag for a repository.
@@ -138,9 +155,7 @@ function(ael_parse_url arg lib_name git_url git_tag)
 endfunction()
 
 macro(AddExtLib ARGV0)
-    set(ALL_EXTLIB_ADDED OFF)
-
-    set(options ONLY_SOURCE SILENT)
+    set(options SILENT)
     set(oneValueArgs NAME REPO TAG)       
     set(multiValueArgs OPTIONS DEPENDS)
 
@@ -174,10 +189,9 @@ macro(AddExtLib ARGV0)
     ael_transform_flags("${AEL_ARGS_OPTIONS}" AEL_ARGS_OPTIONS)
     ael_fix_tag("${AEL_ARGS_REPO}" "${AEL_ARGS_TAG}" AEL_ARGS_TAG)
 
-    if(NOT SILENT)
-        message(STATUS "---------------------------------------------------------------")
-        message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
-        message(STATUS "ONLY_SOURCE: ${AEL_ARGS_ONLY_SOURCE}")
+    message(STATUS "---------------------------------------------------------------------------------------------")
+    message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
+    if(NOT AEL_ARGS_SILENT)
         message(STATUS "OPTIONS: ${AEL_ARGS_OPTIONS}")
         message(STATUS "DEPENDS: ${AEL_ARGS_DEPENDS}")
         message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")
@@ -185,16 +199,13 @@ macro(AddExtLib ARGV0)
 
     set(PREFIX_DIR          "${EXTERNAL_PROJECT_PREFIX}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/${CMAKE_BUILD_TYPE}")
     set(SOURCE_DIR          "${EXTERNAL_PROJECT_PREFIX}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/src")
-    set(INSTALL_SOURCE_DIR  "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/src")
     set(INSTALL_DIR         "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/${CMAKE_BUILD_TYPE}")
-
     set(CLEAR_SOURCE_DIR    "${EXTERNAL_PROJECT_PREFIX}/${AEL_ARGS_NAME}/")
     set(CLEAR_INSTALL_DIR   "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/")
 
-    if(NOT SILENT)
+    if(NOT AEL_ARGS_SILENT)
         message(STATUS "PREFIX_DIR: ${PREFIX_DIR}")
         message(STATUS "SOURCE_DIR: ${SOURCE_DIR}")
-        message(STATUS "INSTALL_SOURCE_DIR: ${INSTALL_SOURCE_DIR}")
         message(STATUS "INSTALL_DIR: ${INSTALL_DIR}")
         message(STATUS "CLEAR_SOURCE_DIR: ${CLEAR_SOURCE_DIR}")
         message(STATUS "CLEAR_INSTALL_DIR: ${CLEAR_INSTALL_DIR}")
@@ -215,10 +226,29 @@ macro(AddExtLib ARGV0)
     COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
     COMMENT "Clearing all directories for ${LIB_NAME}"
     )
-    
-    find_package(${AEL_ARGS_NAME} CONFIG PATHS "${INSTALL_DIR}")
+
+    set(DOWNLOAD_STAMP          "${INSTALL_DIR}/libcompile.stamp")
+    set(CURRENT_STAMP_CONTENT   "OPTIONS ${AEL_ARGS_OPTIONS}\nDEPENDS ${AEL_ARGS_DEPENDS}")
+    set(NEED_RECOMPILE          OFF)
+    if(EXISTS ${DOWNLOAD_STAMP})
+        file(READ ${DOWNLOAD_STAMP} EXISTING_STAMP_CONTENT)
+        string(COMPARE NOTEQUAL "${EXISTING_STAMP_CONTENT}" "${CURRENT_STAMP_CONTENT}" NEED_RECOMPILE)
+        if(NEED_RECOMPILE)
+            message(STATUS "Configuration changed for ${LIB_NAME}, forcing recompile")
+            file(REMOVE_RECURSE ${INSTALL_DIR})
+        endif()
+    else()
+        message(STATUS "No existing libcompile stamp found for ${LIB_NAME}, forcing recompile")
+        file(REMOVE_RECURSE ${INSTALL_DIR})
+    endif()    
+
+    unset(${AEL_ARGS_NAME}_DIR CACHE)
+    find_package(${AEL_ARGS_NAME} CONFIG HINTS "${INSTALL_DIR}" NO_PACKAGE_ROOT_PATH NO_CMAKE_PATH NO_CMAKE_ENVIRONMENT_PATH)
     if(NOT ${AEL_ARGS_NAME}_FOUND)
         message(STATUS "Fetching ${AEL_ARGS_NAME} (${AEL_ARGS_TAG})...")
+
+        set(ALL_EXTLIB_ADDED OFF)
+
         file(MAKE_DIRECTORY
         "${INSTALL_DIR}/bin"
         "${INSTALL_DIR}/include"
@@ -243,7 +273,7 @@ macro(AddExtLib ARGV0)
                     ${AEL_ARGS_OPTIONS}
                 BUILD_ALWAYS OFF
             )
-        elseif()
+        else()
             ExternalProject_Add(
                 ${AEL_ARGS_NAME}
                 GIT_REPOSITORY  ${AEL_ARGS_REPO}
@@ -261,6 +291,7 @@ macro(AddExtLib ARGV0)
                 BUILD_ALWAYS OFF
             )
         endif()
+        file(WRITE ${DOWNLOAD_STAMP} "${CURRENT_STAMP_CONTENT}")
         message(STATUS "${AEL_ARGS_NAME} will be built. Re-run configuration after build completes.")
     else()
         message(STATUS "${AEL_ARGS_NAME} ${AEL_ARGS_TAG} found in ${INSTALL_DIR}")
@@ -269,15 +300,10 @@ macro(AddExtLib ARGV0)
 
         set(${AEL_ARGS_NAME}_INSTALL_DIR ${INSTALL_DIR}) 
         set(${AEL_ARGS_NAME}_ADDED TRUE)
-        set(${AEL_ARGS_NAME}_INCLUDE_DIRS "${${AEL_ARGS_NAME}_INCLUDE_DIRS}")
-        set(${AEL_ARGS_NAME}_LIBRARIES "${${AEL_ARGS_NAME}_LIBRARIES}")
-        set(ALL_EXTLIB_ADDED ON)
-        
-        if(NOT SILENT)
+
+        if(NOT AEL_ARGS_SILENT)
             message(STATUS "${AEL_ARGS_NAME}_INSTALL_DIR: ${${AEL_ARGS_NAME}_INSTALL_DIR}")
             message(STATUS "${AEL_ARGS_NAME}_ADDED: ${${AEL_ARGS_NAME}_ADDED}")
-            #message(STATUS "${AEL_ARGS_NAME}_INCLUDE_DIRS: ${${AEL_ARGS_NAME}_INCLUDE_DIRS}")
-            #message(STATUS "${AEL_ARGS_NAME}_LIBRARIES: ${${AEL_ARGS_NAME}_LIBRARIES}")
         endif()
 
         if(WIN32)
@@ -286,204 +312,25 @@ macro(AddExtLib ARGV0)
             file(GLOB DLL_FILES "${INSTALL_DIR}/bin/*.so")
         endif()
         if(DLL_FILES)
-            if(NOT SILENT)
-                message(STATUS "Copying runtime libraries to ${PROJECT_BINARY_DIR}: ${DLL_FILES}")
+            if(NOT AEL_ARGS_SILENT)
+                message(STATUS "Copying runtime libraries to ${PROJECT_BINARY_DIR}:")
+                foreach(SINGLE_DLL IN LISTS DLL_FILES)
+                    message(STATUS "${SINGLE_DLL}")
+                endforeach()
             endif()
             file(COPY ${DLL_FILES} DESTINATION "${PROJECT_BINARY_DIR}")
         else()
-            if(NOT SILENT)
+            if(NOT AEL_ARGS_SILENT)
                 message(STATUS "No runtime libraries found in ${INSTALL_DIR}/bin")
             endif()
         endif()
     endif()
+    unset(DOWNLOAD_STAMP)
+    unset(CURRENT_STAMP_CONTENT)
+    unset(NEED_RECOMPILE)
+    unset(PREFIX_DIR)
+    unset(SOURCE_DIR)
+    unset(INSTALL_DIR)
+    unset(CLEAR_SOURCE_DIR)
+    unset(CLEAR_INSTALL_DIR)
 endmacro()
-#[[
-set(PROJECT_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/exec/${CMAKE_BUILD_TYPE}")
-set(CMAKE_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}")
-set(EXTERNAL_PROJECT_PREFIX "${CMAKE_SOURCE_DIR}/external")
-set(EXTERNAL_PROJECT_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/install/${CMAKE_BUILD_TYPE}")
-
-set(ALL_CLEAN_CODE_SOURCES "")
-set(ALL_CLEAN_CODE_INCLUDE_DIRS "")
-
-include(FetchContent)
-include(ExternalProject)
-
-# -------------------------- add clean code ----------------------------------------
-macro(add_clean_code LIB_NAME GIT_REPO GIT_TAG)
-    set(options)
-    set(oneValueArgs)
-    set(multiValueArgs EXTRA_ADD_SOURCE)
-    cmake_parse_arguments(ARG "" "" "${multiValueArgs}" ${ARGN})
-
-    set(SOURCE_DIR "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/${GIT_TAG}/src")
-    set(INSTALL_SOURCE_DIR "${EXTERNAL_PROJECT_INSTALL_DIR}/${LIB_NAME}/${GIT_TAG}/src")
-    set(CLEAR_SOURCE_DIR "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/")
-    set(CLEAR_INSTALL_DIR "${EXTERNAL_PROJECT_INSTALL_DIR}/${LIB_NAME}/")
-
-    add_custom_target(${LIB_NAME}_clear
-        COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_SOURCE_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
-        COMMENT "Clearing all directories for ${LIB_NAME}"
-    )
-
-    set(DOWNLOAD_STAMP "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/download.stamp")
-
-    # Generate current stamp content
-    set(CURRENT_STAMP_CONTENT "GIT_REPO ${GIT_REPO}\nGIT_TAG ${GIT_TAG}\nEXTRA_ADD_SOURCE ${ARG_EXTRA_ADD_SOURCE}")
-
-    set(NEED_UPDATE OFF)
-    if(EXISTS ${DOWNLOAD_STAMP})
-        file(READ ${DOWNLOAD_STAMP} EXISTING_STAMP_CONTENT)
-        string(COMPARE NOTEQUAL "${EXISTING_STAMP_CONTENT}" "${CURRENT_STAMP_CONTENT}" NEED_UPDATE)
-
-        if(NEED_UPDATE)
-            message(STATUS "Git configuration changed for ${LIB_NAME}, forcing redownload")
-            file(REMOVE_RECURSE ${SOURCE_DIR})
-            file(REMOVE_RECURSE ${INSTALL_SOURCE_DIR})
-        endif()
-    else()
-        message(STATUS "No existing download stamp found for ${LIB_NAME}, will download sources.")
-        file(REMOVE_RECURSE ${SOURCE_DIR})
-        file(REMOVE_RECURSE ${INSTALL_SOURCE_DIR})
-    endif()
-
-    if(NEED_UPDATE OR NOT EXISTS ${SOURCE_DIR} OR NOT EXISTS ${INSTALL_SOURCE_DIR})
-        file(REMOVE_RECURSE ${SOURCE_DIR})
-        make_directory(${SOURCE_DIR})
-        cmake_policy(SET CMP0153 OLD)
-        exec_program(git
-            ARGS clone --branch ${GIT_TAG} ${GIT_REPO} "${SOURCE_DIR}"
-            RETURN_VALUE GIT_CLONE_RESULT
-            OUTPUT_VARIABLE GIT_CLONE_OUTPUT
-        )
-
-        if (GIT_CLONE_RESULT STREQUAL "0")
-            message(STATUS "Repository cloned successfully to ${SOURCE_DIR}")
-            file(WRITE ${DOWNLOAD_STAMP} ${CURRENT_STAMP_CONTENT})
-            file(MAKE_DIRECTORY ${INSTALL_SOURCE_DIR})
-            file(GLOB_RECURSE COPY_SOURCES
-                "${SOURCE_DIR}/*.c"
-                "${SOURCE_DIR}/*.cpp"
-                "${SOURCE_DIR}/*.h"
-                "${SOURCE_DIR}/*.hpp"
-            )
-            foreach(source_file IN LISTS COPY_SOURCES)
-                file(RELATIVE_PATH rel_path ${SOURCE_DIR} ${source_file})
-                set(target_file "${INSTALL_SOURCE_DIR}/${rel_path}")
-                get_filename_component(target_dir ${target_file} DIRECTORY)
-                file(MAKE_DIRECTORY ${target_dir})
-                configure_file(${source_file} ${target_file} COPYONLY)
-            endforeach()
-        else()
-            message(FATAL_ERROR "Failed to clone repository : ${GIT_CLONE_ERROR}")
-        endif()
-    endif()
-
-    if(EXISTS "${INSTALL_SOURCE_DIR}")
-        set(${LIB_NAME}_SOURCE_DIR "${INSTALL_SOURCE_DIR}")
-        set(${LIB_NAME}_INCLUDE_DIR "${INSTALL_SOURCE_DIR}")
-
-        file(GLOB ${LIB_NAME}_SOURCES
-            "${INSTALL_SOURCE_DIR}/*.c"
-            "${INSTALL_SOURCE_DIR}/*.cpp"
-        )
-        if(ARG_EXTRA_ADD_SOURCE)
-            foreach(mask IN LISTS ARG_EXTRA_ADD_SOURCE)
-                file(GLOB_RECURSE EXTRA_SOURCES "${INSTALL_SOURCE_DIR}/${mask}")
-                list(APPEND ${LIB_NAME}_SOURCES ${EXTRA_SOURCES})
-            endforeach()
-        endif()
-
-        list(REMOVE_DUPLICATES ${LIB_NAME}_SOURCES)
-        list(FILTER ${LIB_NAME}_SOURCES EXCLUDE REGEX "^$")
-
-        message(STATUS "Sources for ${LIB_NAME} from ${GIT_REPO} (tag ${GIT_TAG}):")
-        foreach(mask IN LISTS ${LIB_NAME}_SOURCES)
-            message(STATUS "Added ${mask}")
-        endforeach()
-
-        list(APPEND ALL_CLEAN_CODE_SOURCES ${${LIB_NAME}_SOURCES})
-        list(APPEND ALL_CLEAN_CODE_INCLUDE_DIRS "${${LIB_NAME}_INCLUDE_DIR}")
-
-        set(${LIB_NAME}_FOUND ON)
-    endif()
-endmacro()
-
-# -------------------------- add external library ----------------------------------------
-macro(add_external_library LIB_NAME GIT_REPO GIT_TAG)
-    cmake_parse_arguments(ARG "" "" "EXTRA_CMAKE_ARGS" ${ARGN})
-
-    set(INSTALL_DIR "${EXTERNAL_PROJECT_INSTALL_DIR}/${LIB_NAME}/${GIT_TAG}")
-    set(PREFIX_DIR "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/${GIT_TAG}/${CMAKE_BUILD_TYPE}")
-    set(SOURCE_DIR "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/${GIT_TAG}/src")
-    set(CLEAR_SOURCE_DIR "${EXTERNAL_PROJECT_PREFIX}/${LIB_NAME}/")
-    set(CLEAR_INSTALL_DIR "${EXTERNAL_PROJECT_INSTALL_DIR}/${LIB_NAME}/")
-
-    file(MAKE_DIRECTORY
-        "${INSTALL_DIR}/bin"
-        "${INSTALL_DIR}/include"
-        "${INSTALL_DIR}/lib"
-    )
-
-    add_custom_target(${LIB_NAME}_clear_sources
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_SOURCE_DIR}"
-    COMMENT "Clearing source directory for ${LIB_NAME}"
-    )
-
-    add_custom_target(${LIB_NAME}_clear_install
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
-    COMMENT "Clearing install directory for ${LIB_NAME}"
-    )
-
-    add_custom_target(${LIB_NAME}_clear
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_SOURCE_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
-    COMMENT "Clearing all directories for ${LIB_NAME}"
-    )
-
-    find_package(${LIB_NAME} CONFIG PATHS "${INSTALL_DIR}")
-    if(NOT ${LIB_NAME}_FOUND)
-        message(STATUS "Fetching ${LIB_NAME} (${GIT_TAG})...")
-
-        ExternalProject_Add(
-            ${LIB_NAME}
-            GIT_REPOSITORY  ${GIT_REPO}
-            GIT_TAG         ${GIT_TAG}
-            PREFIX          "${PREFIX_DIR}"
-            TMP_DIR         "${PREFIX_DIR}/tmp"
-            STAMP_DIR       "${PREFIX_DIR}/stamp"
-            LOG_DIR         "${PREFIX_DIR}/log"
-            BINARY_DIR      "${PREFIX_DIR}/bin"
-            SOURCE_DIR      "${SOURCE_DIR}"
-            CMAKE_ARGS
-                -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}
-                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                ${ARG_EXTRA_CMAKE_ARGS}
-            BUILD_ALWAYS OFF
-        )
-        message(STATUS "${LIB_NAME} will be built. Re-run configuration after build completes.")
-    else()
-        message(STATUS "${LIB_NAME} ${GIT_TAG} found in ${INSTALL_DIR}")
-
-        list(APPEND CMAKE_PREFIX_PATH "${INSTALL_DIR}")
-
-        set(${LIB_NAME}_INSTALL_DIR ${INSTALL_DIR})
-        set(${LIB_NAME}_FOUND TRUE)
-        set(${LIB_NAME}_INCLUDE_DIRS "${${LIB_NAME}_INCLUDE_DIRS}")
-        set(${LIB_NAME}_LIBRARIES "${${LIB_NAME}_LIBRARIES}")
-
-        if(WIN32)
-            file(GLOB DLL_FILES "${INSTALL_DIR}/bin/*.dll")
-        else()
-            file(GLOB DLL_FILES "${INSTALL_DIR}/bin/*.so")
-        endif()
-        if(DLL_FILES)
-            message(STATUS "Copying runtime libraries to ${PROJECT_BINARY_DIR}")
-            file(COPY ${DLL_FILES} DESTINATION "${PROJECT_BINARY_DIR}")
-        else()
-            message(STATUS "No runtime libraries found in ${INSTALL_DIR}/bin")
-        endif()
-    endif()
-endmacro()
-#]]
