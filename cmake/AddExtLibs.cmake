@@ -334,3 +334,146 @@ macro(AddExtLib ARGV0)
     unset(CLEAR_SOURCE_DIR)
     unset(CLEAR_INSTALL_DIR)
 endmacro()
+
+# Manages repository synchronization using explicit commit verification
+# Key principles derived from CMake/Git integration patterns
+function(update_or_clone_repo REPO_DIR REPO_URL REPO_TAG)
+    # 1. SECURE GIT VALIDATION
+    # Prefer explicit Git executable check over implicit path assumptions
+    find_package(Git REQUIRED)
+    if(NOT GIT_FOUND)
+        message(FATAL_ERROR "Git prerequisite missing - install git first")
+    endif()
+
+    # 2. TAG RESOLUTION STRATEGY
+    # Force dereference annotated tags to get actual commit SHA
+    set(FULL_TAG_REF "refs/tags/${REPO_TAG}^{}")
+    
+    # 3. STATE VERIFICATION MECHANISM
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} ls-remote --tags ${REPO_URL} ${FULL_TAG_REF}
+        OUTPUT_VARIABLE REMOTE_DATA
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    
+    # 4. COMMIT ISOLATION PATTERN
+    string(REGEX MATCH "^([a-f0-9]+)" TARGET_COMMIT "${REMOTE_DATA}")
+    if(NOT TARGET_COMMIT)
+        message(FATAL_ERROR "Invalid tag reference: ${REPO_TAG}")
+    endif()
+
+    # 5. REPOSITORY LIFECYCLE MANAGEMENT
+    if(EXISTS "${REPO_DIR}/.git")
+        # 5a. VERSION DRIFT PROTECTION
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+            WORKING_DIRECTORY ${REPO_DIR}
+            OUTPUT_VARIABLE CURRENT_COMMIT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+
+        if(NOT CURRENT_COMMIT STREQUAL TARGET_COMMIT)
+            # 5b. FORCED SYNCHRONIZATION PROTOCOL
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} fetch --all --tags -f
+                WORKING_DIRECTORY ${REPO_DIR}
+            )
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} checkout -f ${TARGET_COMMIT}
+                WORKING_DIRECTORY ${REPO_DIR}
+            )
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} reset --hard ${TARGET_COMMIT}
+                WORKING_DIRECTORY ${REPO_DIR}
+            )
+        endif()
+    else()
+        # 6. ATOMIC CLONE OPERATION  
+        # Full clone preserves SHA validation capabilities [6][9]
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} clone 
+                ${REPO_URL} 
+                ${REPO_DIR}
+                --branch ${REPO_TAG}
+                --single-branch
+            RESULT_VARIABLE CLONE_STATUS
+        )
+        
+        # 7. POST-CLONE VALIDATION
+        if(NOT CLONE_STATUS EQUAL 0)
+            file(REMOVE_RECURSE ${REPO_DIR})
+            message(FATAL_ERROR "Clone failed for ${REPO_URL}")
+        endif()
+    endif()
+
+    # 8. FINAL STATE VERIFICATION
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${REPO_DIR}
+        OUTPUT_VARIABLE FINAL_STATE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    
+    if(NOT FINAL_STATE STREQUAL TARGET_COMMIT)
+        message(FATAL_ERROR "Repository state mismatch: Expected ${TARGET_COMMIT}, got ${FINAL_STATE}")
+    endif()
+endfunction()
+
+macro(AddCode ARGV0)
+    set(options SILENT)
+    set(oneValueArgs NAME REPO TAG)       
+    set(multiValueArgs ADD_SOURCES EXL_SOURCES INCLUDES_DIR)
+
+    list(FIND options "${ARGV0}" options_index)
+    list(FIND oneValueArgs "${ARGV0}" oneValueArg_index)
+    list(FIND multiValueArgs "${ARGV0}" multiValueArg_index)
+    if ((options_index EQUAL -1) AND (oneValueArg_index EQUAL -1) AND (multiValueArg_index EQUAL -1))
+        cmake_parse_arguments(AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+        if(NOT AEL_ARGS_REPO)
+            set(AEL_ARGS_REPO "${ARGV0}")
+        endif()
+    else()
+        cmake_parse_arguments(AEL_ARGS "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGV0} ${ARGN})
+    endif()    
+
+    unset(options)
+    unset(oneValueArgs)
+    unset(multiValueArgs)
+    unset(options_index)
+    unset(oneValueArg_index)
+    unset(multiValueArg_index)
+
+    ael_parse_url("${AEL_ARGS_REPO}" LIB_NAME AEL_ARGS_REPO LIB_TAG)
+    if(NOT AEL_ARGS_NAME)
+        set(AEL_ARGS_NAME "${LIB_NAME}")
+    endif()
+    if(NOT AEL_ARGS_TAG)
+        set(AEL_ARGS_TAG "${LIB_TAG}")
+    endif()
+
+    ael_fix_tag("${AEL_ARGS_REPO}" "${AEL_ARGS_TAG}" AEL_ARGS_TAG)
+
+    message(STATUS "---------------------------------------------------------------------------------------------")
+    message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
+    if(NOT AEL_ARGS_SILENT)
+        message(STATUS "ADD_SOURCES: ${AEL_ARGS_ADD_SOURCES}")
+        message(STATUS "EXL_SOURCES: ${AEL_ARGS_EXL_SOURCES}")
+        message(STATUS "INCLUDES_DIR: ${AEL_ARGS_INCLUDES_DIR}")
+        message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")
+    endif()
+
+    set(INSTALL_DIR         "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/")
+    set(CLEAR_INSTALL_DIR   "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/")
+
+    if(NOT AEL_ARGS_SILENT)
+        message(STATUS "INSTALL_DIR: ${INSTALL_DIR}")
+        message(STATUS "CLEAR_INSTALL_DIR: ${CLEAR_INSTALL_DIR}")
+    endif()
+
+    add_custom_target(${AEL_ARGS_NAME}_clear_install
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
+    COMMENT "Clearing install directory for ${LIB_NAME}"
+    )
+
+    update_or_clone_repo(${INSTALL_DIR} ${AEL_ARGS_REPO} ${AEL_ARGS_TAG})
+endmacro()
