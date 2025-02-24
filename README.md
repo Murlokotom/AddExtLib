@@ -22,6 +22,18 @@ The `AddExtLib` macro is designed to simplify the process of adding external lib
 
 ## Usage
 
+### CMake script for automatic download of AddExtLib
+
+```cmake
+file(DOWNLOAD
+    ‘https://raw.githubusercontent.com/Murlokotom/AddExtLib/master/cmake/AddExtLibs.cmake’
+    ‘${CMAKE_CURRENT_SOURCE_DIR}/cmake/AddExtLibs.cmake’
+    TLS_VERIFY ON
+)
+include(cmake/AddExtLibs.cmake)
+```
+The script should be placed at the beginning of your CMakeLists.txt
+
 ### Basic Syntax
 
 ```cmake
@@ -94,7 +106,7 @@ AddExtLib(
 
 ## Project Compilation Procedure Using the `AddExtLib` Macro for CMake
 
-During the first configuration and compilation pass, CMake downloads and compiles the libraries. During subsequent passes, the already downloaded and compiled libraries are linked to the main program. If the **OPTIONS** parameter is changed, the library is forcibly recompiled. To control which stage is being executed, the `ALL_EXTLIB_ADDED` variable is used, which indicates that all external libraries are ready to be linked to the main project.
+During the first configuration and compilation pass, CMake downloads and compiles the libraries. During subsequent passes, the already downloaded and compiled libraries are linked to the main program. If the **OPTIONS** or **DEPENDS** parameter is changed, the library is forcibly recompiled. To control which stage is being executed, the `ALL_EXTLIB_ADDED` variable is used, which indicates that all external libraries are ready to be linked to the main project.
 
 Example CMakeLists.txt:
 
