@@ -455,6 +455,7 @@ macro(AddCode ARGV0)
 
     set(INSTALL_DIR         "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/")
     set(CLEAR_INSTALL_DIR   "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/")
+    set(${AEL_ARGS_NAME}_INSTALL_DIR "${INSTALL_DIR}")
 
     message(STATUS "---------------------------------------------------------------------------------------------")
     message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
