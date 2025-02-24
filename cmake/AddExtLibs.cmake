@@ -395,7 +395,7 @@ function(update_or_clone_repo REPO_DIR REPO_URL REPO_TAG)
                 ${REPO_URL} 
                 ${REPO_DIR}
                 --branch ${REPO_TAG}
-                --single-branch
+#                --single-branch
             RESULT_VARIABLE CLONE_STATUS
         )
         
@@ -453,27 +453,74 @@ macro(AddCode ARGV0)
 
     ael_fix_tag("${AEL_ARGS_REPO}" "${AEL_ARGS_TAG}" AEL_ARGS_TAG)
 
-    message(STATUS "---------------------------------------------------------------------------------------------")
-    message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
-    if(NOT AEL_ARGS_SILENT)
-        message(STATUS "ADD_SOURCES: ${AEL_ARGS_ADD_SOURCES}")
-        message(STATUS "EXL_SOURCES: ${AEL_ARGS_EXL_SOURCES}")
-        message(STATUS "INCLUDES_DIR: ${AEL_ARGS_INCLUDES_DIR}")
-        message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")
-    endif()
-
     set(INSTALL_DIR         "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/${AEL_ARGS_TAG}/")
     set(CLEAR_INSTALL_DIR   "${EXTERNAL_PROJECT_INSTALL_DIR}/${AEL_ARGS_NAME}/")
 
-    if(NOT AEL_ARGS_SILENT)
-        message(STATUS "INSTALL_DIR: ${INSTALL_DIR}")
-        message(STATUS "CLEAR_INSTALL_DIR: ${CLEAR_INSTALL_DIR}")
-    endif()
+    message(STATUS "---------------------------------------------------------------------------------------------")
+    message(STATUS "Name: ${AEL_ARGS_NAME}, URL: ${AEL_ARGS_REPO}, Tag: ${AEL_ARGS_TAG}")
 
     add_custom_target(${AEL_ARGS_NAME}_clear_install
     COMMAND ${CMAKE_COMMAND} -E remove_directory "${CLEAR_INSTALL_DIR}"
     COMMENT "Clearing install directory for ${LIB_NAME}"
     )
 
-    update_or_clone_repo(${INSTALL_DIR} ${AEL_ARGS_REPO} ${AEL_ARGS_TAG})
+    if(NOT AEL_ARGS_SILENT)
+        message(STATUS "INSTALL_DIR: ${INSTALL_DIR}")
+        message(STATUS "CLEAR_INSTALL_DIR: ${CLEAR_INSTALL_DIR}")
+        message(STATUS "ADD_SOURCES: ${AEL_ARGS_ADD_SOURCES}")
+        message(STATUS "EXL_SOURCES: ${AEL_ARGS_EXL_SOURCES}")
+        message(STATUS "INCLUDES_DIR: ${AEL_ARGS_INCLUDES_DIR}")
+        message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")        
+    endif() 
+
+    update_or_clone_repo(${INSTALL_DIR} ${AEL_ARGS_REPO} ${AEL_ARGS_TAG})     
+
+    foreach(list_el IN LISTS AEL_ARGS_ADD_SOURCES)
+        file(GLOB_RECURSE finded_sources "${INSTALL_DIR}${list_el}")
+        list(APPEND ${AEL_ARGS_NAME}_SOURCES ${finded_sources})
+    endforeach()
+    file(GLOB finded_sources "${INSTALL_DIR}*.c")
+    list(APPEND ${AEL_ARGS_NAME}_SOURCES ${finded_sources})
+    file(GLOB finded_sources "${INSTALL_DIR}*.cpp")
+    list(APPEND ${AEL_ARGS_NAME}_SOURCES ${finded_sources})
+    file(GLOB finded_sources "${INSTALL_DIR}*.cc")
+    list(APPEND ${AEL_ARGS_NAME}_SOURCES ${finded_sources})
+    
+    if(AEL_ARGS_EXL_SOURCES)
+        foreach(src_file IN LISTS ${AEL_ARGS_NAME}_SOURCES)
+            set(exclude_file OFF)
+            foreach(mask IN LISTS AEL_ARGS_EXL_SOURCES)
+                set(mask_full "${INSTALL_DIR}${mask}")
+                if(src_file MATCHES ${mask_full})
+                    set(exclude_file ON)
+                    break()    
+                endif()
+            endforeach()
+            if(NOT exclude_file)
+                list(APPEND filtered_source "${src_file}")
+            endif()
+        endforeach()
+        set(${AEL_ARGS_NAME}_SOURCES "${filtered_source}")
+    endif()
+
+    foreach(list_el IN LISTS AEL_ARGS_INCLUDES_DIR)
+       list(APPEND ${AEL_ARGS_NAME}_INCLUDES "${INSTALL_DIR}${list_el}") 
+    endforeach()
+    list(APPEND ${AEL_ARGS_NAME}_INCLUDES "${INSTALL_DIR}")
+
+    if(NOT AEL_ARGS_SILENT)
+        message(STATUS "Added source files ${AEL_ARGS_NAME}_SOURCES:")
+        foreach(list_el IN LISTS ${AEL_ARGS_NAME}_SOURCES)
+            message(STATUS "${list_el}")
+        endforeach()
+        message(STATUS "Includes dirs ${AEL_ARGS_NAME}_INCLUDES:")
+        foreach(list_el IN LISTS ${AEL_ARGS_NAME}_INCLUDES)
+            message(STATUS "${list_el}")
+        endforeach()
+    endif()
+    unset(list_el)
+    unset(finded_sources)
+    unset(src_file)
+    unset(src_lower)
+    unset(mask_lower)
 endmacro()
