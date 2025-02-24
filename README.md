@@ -26,8 +26,8 @@ The `AddExtLib` macro is designed to simplify the process of adding external lib
 
 ```cmake
 file(DOWNLOAD
-    ‘https://raw.githubusercontent.com/Murlokotom/AddExtLib/master/cmake/AddExtLibs.cmake’
-    ‘${CMAKE_CURRENT_SOURCE_DIR}/cmake/AddExtLibs.cmake’
+    "https://raw.githubusercontent.com/Murlokotom/AddExtLib/master/cmake/AddExtLibs.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/AddExtLibs.cmake"
     TLS_VERIFY ON
 )
 include(cmake/AddExtLibs.cmake)
