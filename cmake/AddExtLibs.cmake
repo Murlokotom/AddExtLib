@@ -1,5 +1,6 @@
 find_package(Git REQUIRED)
 include(ExternalProject)
+include(FetchContent)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
@@ -20,6 +21,9 @@ endif()
 if(NOT AEL_INSTALL_DIR)
     set(AEL_INSTALL_DIR "install")
 endif()
+
+set(ALL_ADDCODE_INCLUDES "")
+set(ALL_ADDCODE_SOURCES "")
 
 set(ALL_EXTLIB_ADDED ON)
 
@@ -298,6 +302,7 @@ macro(AddExtLib ARGV0)
 
         list(APPEND CMAKE_PREFIX_PATH "${INSTALL_DIR}")
 
+        set(${AEL_ARGS_NAME}_SOURCE_DIR ${SOURCE_DIR}) 
         set(${AEL_ARGS_NAME}_INSTALL_DIR ${INSTALL_DIR}) 
         set(${AEL_ARGS_NAME}_ADDED TRUE)
 
@@ -334,90 +339,6 @@ macro(AddExtLib ARGV0)
     unset(CLEAR_SOURCE_DIR)
     unset(CLEAR_INSTALL_DIR)
 endmacro()
-
-# Manages repository synchronization using explicit commit verification
-# Key principles derived from CMake/Git integration patterns
-function(update_or_clone_repo REPO_DIR REPO_URL REPO_TAG)
-    # 1. SECURE GIT VALIDATION
-    # Prefer explicit Git executable check over implicit path assumptions
-    find_package(Git REQUIRED)
-    if(NOT GIT_FOUND)
-        message(FATAL_ERROR "Git prerequisite missing - install git first")
-    endif()
-
-    # 2. TAG RESOLUTION STRATEGY
-    # Force dereference annotated tags to get actual commit SHA
-    set(FULL_TAG_REF "refs/tags/${REPO_TAG}^{}")
-    
-    # 3. STATE VERIFICATION MECHANISM
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} ls-remote --tags ${REPO_URL} ${FULL_TAG_REF}
-        OUTPUT_VARIABLE REMOTE_DATA
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    
-    # 4. COMMIT ISOLATION PATTERN
-    string(REGEX MATCH "^([a-f0-9]+)" TARGET_COMMIT "${REMOTE_DATA}")
-    if(NOT TARGET_COMMIT)
-        message(FATAL_ERROR "Invalid tag reference: ${REPO_TAG}")
-    endif()
-
-    # 5. REPOSITORY LIFECYCLE MANAGEMENT
-    if(EXISTS "${REPO_DIR}/.git")
-        # 5a. VERSION DRIFT PROTECTION
-        execute_process(
-            COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
-            WORKING_DIRECTORY ${REPO_DIR}
-            OUTPUT_VARIABLE CURRENT_COMMIT
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-
-        if(NOT CURRENT_COMMIT STREQUAL TARGET_COMMIT)
-            # 5b. FORCED SYNCHRONIZATION PROTOCOL
-            execute_process(
-                COMMAND ${GIT_EXECUTABLE} fetch --all --tags -f
-                WORKING_DIRECTORY ${REPO_DIR}
-            )
-            execute_process(
-                COMMAND ${GIT_EXECUTABLE} checkout -f ${TARGET_COMMIT}
-                WORKING_DIRECTORY ${REPO_DIR}
-            )
-            execute_process(
-                COMMAND ${GIT_EXECUTABLE} reset --hard ${TARGET_COMMIT}
-                WORKING_DIRECTORY ${REPO_DIR}
-            )
-        endif()
-    else()
-        # 6. ATOMIC CLONE OPERATION  
-        # Full clone preserves SHA validation capabilities [6][9]
-        execute_process(
-            COMMAND ${GIT_EXECUTABLE} clone 
-                ${REPO_URL} 
-                ${REPO_DIR}
-                --branch ${REPO_TAG}
-#                --single-branch
-            RESULT_VARIABLE CLONE_STATUS
-        )
-        
-        # 7. POST-CLONE VALIDATION
-        if(NOT CLONE_STATUS EQUAL 0)
-            file(REMOVE_RECURSE ${REPO_DIR})
-            message(FATAL_ERROR "Clone failed for ${REPO_URL}")
-        endif()
-    endif()
-
-    # 8. FINAL STATE VERIFICATION
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
-        WORKING_DIRECTORY ${REPO_DIR}
-        OUTPUT_VARIABLE FINAL_STATE
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    
-    if(NOT FINAL_STATE STREQUAL TARGET_COMMIT)
-        message(FATAL_ERROR "Repository state mismatch: Expected ${TARGET_COMMIT}, got ${FINAL_STATE}")
-    endif()
-endfunction()
 
 macro(AddCode ARGV0)
     set(options SILENT)
@@ -474,7 +395,12 @@ macro(AddCode ARGV0)
         message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")        
     endif() 
 
-    update_or_clone_repo(${INSTALL_DIR} ${AEL_ARGS_REPO} ${AEL_ARGS_TAG})     
+    FetchContent_Populate(
+        ${AEL_ARGS_NAME}
+        GIT_REPOSITORY      ${AEL_ARGS_REPO}
+        GIT_TAG             ${AEL_ARGS_TAG}
+        SOURCE_DIR          ${INSTALL_DIR}
+    )
 
     foreach(list_el IN LISTS AEL_ARGS_ADD_SOURCES)
         file(GLOB_RECURSE finded_sources "${INSTALL_DIR}${list_el}")
