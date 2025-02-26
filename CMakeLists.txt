@@ -8,7 +8,6 @@ add_subdirectory("examples/cereal")
 add_subdirectory("examples/lua")
 
 #[[AddExtLib("gh:rhuijben/sqlite-amalgamation@3.49.0" NAME sqlite3 OPTIONS "BUILD_SHELL OFF" "ENABLE_STATIC_SHELL OFF" "ENABLE_ICU ON" SILENT)
-AddExtLib("gh:USCiLab/cereal@v1.3.2" OPTIONS "BUILD_DOC OFF" "BUILD_SANDBOX OFF" "BUILD_TESTS OFF" "THREAD_SAFE ON" "CEREAL_INSTALL ON" "SKIP_PERFORMANCE_COMPARISON ON" SILENT)
 AddExtLib(
     REPO "https://github.com/DCMTK/dcmtk.git@3.6.7"
     NAME DCMTK
