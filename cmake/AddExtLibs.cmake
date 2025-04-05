@@ -160,7 +160,7 @@ endfunction()
 
 macro(AddExtLib ARGV0)
     set(options SILENT DISABLE_SEARCH_TAG)
-    set(oneValueArgs NAME REPO TAG)       
+    set(oneValueArgs NAME REPO TAG SHARED_LIBS_COPY_DIR)       
     set(multiValueArgs OPTIONS DEPENDS COMPONENTS)
 
     list(FIND options "${ARGV0}" options_index)
@@ -317,10 +317,15 @@ macro(AddExtLib ARGV0)
             message(STATUS "${AEL_ARGS_NAME}_ADDED: ${${AEL_ARGS_NAME}_ADDED}")
         endif()
 
+
+        set(SHARED_LIBS_COPY_DIR "${INSTALL_DIR}/bin")
+        if(AEL_ARGS_SHARED_LIBS_COPY_DIR)
+            set(SHARED_LIBS_COPY_DIR "${INSTALL_DIR}/${AEL_ARGS_SHARED_LIBS_COPY_DIR}")
+        endif()    
         if(WIN32)
-            file(GLOB DLL_FILES "${INSTALL_DIR}/bin/*.dll")
+            file(GLOB DLL_FILES "${SHARED_LIBS_COPY_DIR}/*.dll")
         else()
-            file(GLOB DLL_FILES "${INSTALL_DIR}/bin/*.so")
+            file(GLOB DLL_FILES "${SHARED_LIBS_COPY_DIR}/*.so")
         endif()
         if(DLL_FILES)
             if(NOT AEL_ARGS_SILENT)
@@ -347,7 +352,7 @@ macro(AddExtLib ARGV0)
 endmacro()
 
 macro(AddCode ARGV0)
-    set(options SILENT MAKE_SHARED_LIB MAKE_STATIC_LIB DISABLE_SEARCH_TAG)
+    set(options SILENT MAKE_SHARED_LIB MAKE_STATIC_LIB DISABLE_SEARCH_TAG OFFLINE)
     set(oneValueArgs NAME REPO TAG)       
     set(multiValueArgs ADD_SOURCES EXL_SOURCES INCLUDES_DIR)
 
@@ -369,6 +374,10 @@ macro(AddCode ARGV0)
     unset(options_index)
     unset(oneValueArg_index)
     unset(multiValueArg_index)
+
+    if(AEL_ARGS_OFFLINE)
+        set(AEL_ARGS_DISABLE_SEARCH_TAG ON)
+    endif()
 
     if(AEL_ARGS_MAKE_STATIC_LIB AND AEL_ARGS_MAKE_SHARED_LIB)
         unset(AEL_ARGS_MAKE_SHARED_LIB)
@@ -412,12 +421,14 @@ macro(AddCode ARGV0)
         message(STATUS "UNPARSED_ARGUMENTS: ${AEL_ARGS_UNPARSED_ARGUMENTS}")        
     endif() 
 
-    FetchContent_Populate(
-        ${AEL_ARGS_NAME}
-        GIT_REPOSITORY      ${AEL_ARGS_REPO}
-        GIT_TAG             ${AEL_ARGS_TAG}
-        SOURCE_DIR          ${INSTALL_DIR}
-    )
+    if(NOT AEL_ARGS_OFFLINE)
+        FetchContent_Populate(
+            ${AEL_ARGS_NAME}
+            GIT_REPOSITORY      ${AEL_ARGS_REPO}
+            GIT_TAG             ${AEL_ARGS_TAG}
+            SOURCE_DIR          ${INSTALL_DIR}
+        )
+    endif()
 
     foreach(list_el IN LISTS AEL_ARGS_ADD_SOURCES)
         file(GLOB_RECURSE finded_sources "${INSTALL_DIR}${list_el}")
